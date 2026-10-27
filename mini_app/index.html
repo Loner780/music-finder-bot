@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Music Finder</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--tg-theme-bg-color, #1a1a1a);
+            color: var(--tg-theme-text-color, #ffffff);
+            padding: 20px;
+            min-height: 100vh;
+        }
+        h1 { font-size: 24px; margin-bottom: 20px; text-align: center; }
+        .playlist {
+            background: var(--tg-theme-secondary-bg-color, #2a2a2a);
+            padding: 15px; margin: 10px 0; border-radius: 12px;
+            cursor: pointer; transition: transform 0.2s;
+        }
+        .playlist:hover { transform: scale(1.02); }
+        .playlist-name { font-weight: bold; font-size: 16px; margin-bottom: 5px; }
+        .playlist-count { font-size: 14px; opacity: 0.7; }
+        .empty { text-align: center; opacity: 0.5; margin-top: 50px; }
+        .track {
+            background: var(--tg-theme-secondary-bg-color, #2a2a2a);
+            padding: 12px; margin: 8px 0; border-radius: 8px;
+            display: flex; align-items: center;
+        }
+        .track-number { width: 30px; font-weight: bold; opacity: 0.5; }
+        .track-name { flex: 1; }
+        .back-btn {
+            background: var(--tg-theme-button-color, #2481cc);
+            color: var(--tg-theme-button-text-color, #ffffff);
+            border: none; padding: 12px 24px; border-radius: 8px;
+            cursor: pointer; margin-bottom: 20px; font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div id="app"></div>
+    <script>
+        let tg = null;
+        let userId = 7750852465;
+        if (window.Telegram && window.Telegram.WebApp) {
+            tg = window.Telegram.WebApp;
+            tg.expand();
+            if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
+                userId = tg.initDataUnsafe.user.id;
+            }
+        }
+        const app = document.getElementById('app');
+        async function loadPlaylists() {
+            try {
+                const response = await fetch(`http://localhost:8000/api/playlists?user_id=${userId}`);
+                const playlists = await response.json();
+                if (Object.keys(playlists).length === 0) {
+                    app.innerHTML = '<div class="empty">У вас пока нет плейлистов</div>';
+                    return;
+                }
+                let html = '<h1>📁 Мои плейлисты</h1>';
+                for (const [name, tracks] of Object.entries(playlists)) {
+                    html += `<div class="playlist" onclick="openPlaylist('${name}')">
+                        <div class="playlist-name">📂 ${name}</div>
+                        <div class="playlist-count">${tracks.length} тр.</div>
+                    </div>`;
+                }
+                app.innerHTML = html;
+            } catch (error) {
+                console.error('Ошибка:', error);
+                app.innerHTML = '<div class="empty">Ошибка загрузки. Убедитесь, что сервер запущен.</div>';
+            }
+        }
+        async function openPlaylist(name) {
+            try {
+                const response = await fetch(`http://localhost:8000/api/playlist?user_id=${userId}&name=${encodeURIComponent(name)}`);
+                const tracks = await response.json();
+                let html = `<button class="back-btn" onclick="loadPlaylists()">← Назад</button><h1> ${name}</h1>`;
+                tracks.forEach((track, index) => {
+                    html += `<div class="track">
+                        <div class="track-number">${index + 1}.</div>
+                        <div class="track-name">${track.name}</div>
+                    </div>`;
+                });
+                app.innerHTML = html;
+            } catch (error) {
+                console.error('Ошибка:', error);
+                alert('Ошибка загрузки плейлиста');
+            }
+        }
+        loadPlaylists();
+    </script>
+</body>
+</html>
