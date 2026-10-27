@@ -24,49 +24,71 @@
         .playlist-name { font-weight: bold; font-size: 16px; margin-bottom: 5px; }
         .playlist-count { font-size: 14px; opacity: 0.7; }
         .empty { text-align: center; opacity: 0.7; margin-top: 50px; padding: 20px; }
-        .track {
-            background: var(--tg-theme-secondary-bg-color, #2a2a2a);
-            padding: 12px; margin: 8px 0; border-radius: 8px;
-            display: flex; align-items: center;
+        .error { 
+            background: #ff4444; 
+            color: white; 
+            padding: 15px; 
+            border-radius: 8px; 
+            margin: 10px 0;
+            font-size: 14px;
         }
-        .track-number { width.] 30px; font-weight: bold; opacity: 0.5; }
-        .track-name { flex: 1; }
-        .back-btn {
-            background: var(--tg-theme-button-color, #2481cc);
-            color: var(--tg-theme-button-text-color, #ffffff);
-            border: none; padding: 12px 24px; border-radius: 8px;
-            cursor: pointer; margin-bottom: 20px; font-size: 16px;
-            width: 100%;
+        .debug {
+            background: #333;
+            padding: 10px;
+            border-radius: 8px;
+            margin: 10px 0;
+            font-size: 12px;
+            font-family: monospace;
+            word-break: break-all;
         }
     </style>
 </head>
 <body>
     <div id="app">
-        <div class="empty">Загрузка...</div>
+        <div class="empty"> Загрузка...</div>
     </div>
+
     <script>
-        let tg = null;
-        let userId = "7750852465"; // Значение по умолчанию
-        
+        const app = document.getElementById('app');
+        let userId = "7750852465";
+        let API_URL = window.location.origin;
+
         // Инициализация Telegram WebApp
         if (window.Telegram && window.Telegram.WebApp) {
-            tg = window.Telegram.WebApp;
+            const tg = window.Telegram.WebApp;
             tg.ready();
             tg.expand();
+            
             if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
                 userId = String(tg.initDataUnsafe.user.id);
             }
         }
 
-        // Умный URL: если открыто на Render, будет https://...onrender.com, если локально - http://localhost...
-        const API_URL = window.location.origin; 
-        const app = document.getElementById('app');
+        // Показываем отладочную информацию
+        app.innerHTML = `
+            <div class="debug">
+                <b>Отладка:</b><br>
+                URL: ${API_URL}<br>
+                User ID: ${userId}<br>
+                Telegram SDK: ${window.Telegram ? '✅' : '❌'}
+            </div>
+            <div class="empty">⏳ Загрузка плейлистов...</div>
+        `;
 
         async function loadPlaylists() {
             try {
-                const response = await fetch(`${API_URL}/api/playlists?user_id=${userId}`);
-                if (!response.ok) throw new Error("Ошибка сети");
+                const url = `${API_URL}/api/playlists?user_id=${userId}`;
+                console.log('Запрос к:', url);
+                
+                const response = await fetch(url);
+                console.log('Статус ответа:', response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
                 const playlists = await response.json();
+                console.log('Получено:', playlists);
                 
                 if (!playlists || Object.keys(playlists).length === 0) {
                     app.innerHTML = '<div class="empty">📭 У вас пока нет плейлистов.<br><br>Создайте их через бота командой /new</div>';
@@ -76,43 +98,58 @@
                 let html = '<h1>📁 Мои плейлисты</h1>';
                 for (const [name, tracks] of Object.entries(playlists)) {
                     html += `<div class="playlist" onclick="openPlaylist('${name}')">
-                        <div class="playlist-name">📂 ${name}</div>
+                        <div class="playlist-name"> ${name}</div>
                         <div class="playlist-count">${tracks.length} тр.</div>
                     </div>`;
                 }
                 app.innerHTML = html;
+                
             } catch (error) {
                 console.error('Ошибка:', error);
-                app.innerHTML = `<div class="empty">⚠️ Ошибка загрузки.<br><small>URL: ${API_URL}</small></div>`;
+                app.innerHTML = `
+                    <div class="error">
+                        ❌ Ошибка загрузки:<br>
+                        ${error.message}
+                    </div>
+                    <div class="debug">
+                        URL: ${API_URL}/api/playlists?user_id=${userId}
+                    </div>
+                `;
             }
         }
 
         async function openPlaylist(name) {
             try {
-                const response = await fetch(`${API_URL}/api/playlist?user_id=${userId}&name=${encodeURIComponent(name)}`);
-                if (!response.ok) throw new Error("Ошибка сети");
+                const url = `${API_URL}/api/playlist?user_id=${userId}&name=${encodeURIComponent(name)}`;
+                const response = await fetch(url);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
                 const tracks = await response.json();
                 
-                let html = `<button class="back-btn" onclick="loadPlaylists()">← Назад к плейлистам</button><h1>🎵 ${name}</h1>`;
+                let html = `<button class="back-btn" onclick="loadPlaylists()" style="background: var(--tg-theme-button-color, #2481cc); color: var(--tg-theme-button-text-color, #fff); border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; margin-bottom: 20px; font-size: 16px; width: 100%;">← Назад к плейлистам</button><h1>🎵 ${name}</h1>`;
                 
                 if (tracks.length === 0) {
                     html += '<div class="empty">Плейлист пуст</div>';
                 } else {
                     tracks.forEach((track, index) => {
-                        html += `<div class="track">
-                            <div class="track-number">${index + 1}.</div>
-                            <div class="track-name">${track.name}</div>
+                        html += `<div class="track" style="background: var(--tg-theme-secondary-bg-color, #2a2a2a); padding: 12px; margin: 8px 0; border-radius: 8px; display: flex; align-items: center;">
+                            <div class="track-number" style="width: 30px; font-weight: bold; opacity: 0.5;">${index + 1}.</div>
+                            <div class="track-name" style="flex: 1;">${track.name}</div>
                         </div>`;
                     });
-                each
+                }
                 app.innerHTML = html;
+                
             } catch (error) {
                 console.error('Ошибка:', error);
-                alert('Ошибка загрузки плейлиста');
+                alert(`Ошибка загрузки плейлиста: ${error.message}`);
             }
         }
 
-        // Запускаем загрузку при старте
+        // Запускаем загрузку
         loadPlaylists();
     </script>
 </body>
