@@ -38,7 +38,7 @@ async def set_commands(bot: Bot):
     await bot.set_my_commands(commands, scope=BotCommandScopeDefault())
 
 # Загружаем переменные из файла .env
-load_dotenv()
+load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 
 # ОТЛАДКА
 print(f"🔍 Token loaded: {bool(os.getenv('TELEGRAM_BOT_TOKEN'))}")
@@ -216,7 +216,7 @@ async def cmd_start(message: types.Message, bot: Bot):
         ]
     ])
         # Кнопка Mini App
-    webapp_url = "https://identity-fees-laws-fellow.trycloudflare.com"
+    webapp_url = "https://music-finder-bot-2xi8.onrender.com"
     mini_app_kb = ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text="🎵 Открыть приложение", web_app=WebAppInfo(url=webapp_url))]],
         resize_keyboard=True
