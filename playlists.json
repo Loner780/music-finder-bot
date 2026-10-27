@@ -1,0 +1,20 @@
+{
+  "7750852465": {
+    "Мой плейлист": [
+      {
+        "name": "Imagine Dragons - Radioactive",
+        "cover_url": "https://i.ytimg.com/vi/ktVt8QLybEQ/maxresdefault.jpg"
+      },
+      {
+        "name": "The Weeknd - Blinding Lights",
+        "cover_url": "https://i.ytimg.com/vi/4NRXxjuU8HE/maxresdefault.jpg"
+      }
+    ],
+    "Любимые треки": [
+      {
+        "name": "Dua Lipa - Levitating",
+        "cover_url": ""
+      }
+    ]
+  }
+}
