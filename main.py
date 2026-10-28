@@ -196,7 +196,7 @@ async def search_youtube_api(query):
     return None
 
 async def download_mp3(youtube_url, output_path=DOWNLOAD_DIR):
-    """Скачивает аудио через Piped API (прямая ссылка, без yt-dlp)"""
+    """Скачивает MP3 через Cobalt API (стабильный сервис)"""
     import re
     
     os.makedirs(output_path, exist_ok=True)
@@ -208,39 +208,45 @@ async def download_mp3(youtube_url, output_path=DOWNLOAD_DIR):
     
     video_id = match.group(1)
     
-    # Piped API инстансы (если один не работает — пробуем другой)
-    piped_instances = [
-        "https://pipedapi.kavin.rocks",
-        "https://pipedapi.adminforge.de",
-        "https://pipedapi.in.projectsegfau.lt",
-        "https://api.piped.yt",
-    ]
+    # Cobalt API
+    cobalt_api = "https://api.cobalt.tools/api/json"
+    
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+    
+    payload = {
+        "url": youtube_url,
+        "vCodec": "h264",
+        "vQuality": "720",
+        "aFormat": "mp3",
+        "isAudioOnly": True,
+    }
     
     audio_url = None
-    for instance in piped_instances:
-        try:
-            api_url = f"{instance}/streams/{video_id}"
-            async with aiohttp.ClientSession() as session:
-                async with session.get(api_url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        # Ищем audioOnly поток
-                        for stream in data.get('audioStreams', []):
-                            if stream.get('codec', '').startswith('mp4'):
-                                audio_url = stream['url']
-                                print(f"✅ Piped ({instance}) нашёл аудио поток")
-                                break
-                        if audio_url:
-                            break
-        except Exception as e:
-            print(f"⚠️ Piped инстанс {instance} не ответил: {e}")
-            continue
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(cobalt_api, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    if data.get('status') == 'stream' or data.get('url'):
+                        audio_url = data.get('url')
+                        print(f"✅ Cobalt API нашёл аудио: {audio_url[:50]}...")
+                    else:
+                        print(f"️ Cobalt API вернул: {data}")
+                else:
+                    error_text = await resp.text()
+                    print(f"❌ Cobalt API error {resp.status}: {error_text}")
+    except Exception as e:
+        print(f"❌ Cobalt API exception: {e}")
     
     if not audio_url:
-        raise Exception("Не удалось получить ссылку на аудио через Piped API")
+        raise Exception("Не удалось получить ссылку через Cobalt API")
     
-    # Скачиваем файл напрямую
-    filename = os.path.join(output_path, f"{video_id}.m4a")
+    # Скачиваем файл
+    filename = os.path.join(output_path, f"{video_id}.mp3")
     
     async with aiohttp.ClientSession() as session:
         async with session.get(audio_url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
