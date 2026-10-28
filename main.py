@@ -18,7 +18,6 @@ from spotipy.oauth2 import SpotifyClientCredentials
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo, KeyboardButton, ReplyKeyboardMarkup
-import yt_dlp
 
 # === 1. ЗАГРУЗКА ПЕРЕМЕННЫХ ОКРУЖЕНИЯ ===
 load_dotenv()
@@ -196,46 +195,64 @@ async def search_youtube_api(query):
         print(f"❌ YouTube API exception: {e}")
     return None
 
-def download_mp3(youtube_url, output_path=DOWNLOAD_DIR):
-    """Скачивает MP3 через yt-dlp с обходом блокировок"""
+async def download_mp3(youtube_url, output_path=DOWNLOAD_DIR):
+    """Скачивает аудио через Piped API (прямая ссылка, без yt-dlp)"""
+    import re
+    
     os.makedirs(output_path, exist_ok=True)
     
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }],
-        'outtmpl': f'{output_path}%(title)s.%(ext)s',
-        'quiet': True,
-        'no_warnings': True,
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['web', 'android', 'ios', 'web_creator', 'tv'],
-                'player_skip': ['webpage'],
-            }
-        },
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept-Language': 'en-US,en;q=0.9',
-        },
-    }
+    # Извлекаем video_id из URL
+    match = re.search(r'(?:v=|/)([0-9A-Za-z_-]{11})', youtube_url)
+    if not match:
+        raise Exception(f"Неверный YouTube URL: {youtube_url}")
     
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(youtube_url, download=True)
-            filename = ydl.prepare_filename(info)
-            mp3_filename = filename.rsplit('.', 1)[0] + '.mp3'
+    video_id = match.group(1)
+    
+    # Piped API инстансы (если один не работает — пробуем другой)
+    piped_instances = [
+        "https://pipedapi.kavin.rocks",
+        "https://pipedapi.adminforge.de",
+        "https://pipedapi.in.projectsegfau.lt",
+        "https://api.piped.yt",
+    ]
+    
+    audio_url = None
+    for instance in piped_instances:
+        try:
+            api_url = f"{instance}/streams/{video_id}"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(api_url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        # Ищем audioOnly поток
+                        for stream in data.get('audioStreams', []):
+                            if stream.get('codec', '').startswith('mp4'):
+                                audio_url = stream['url']
+                                print(f"✅ Piped ({instance}) нашёл аудио поток")
+                                break
+                        if audio_url:
+                            break
+        except Exception as e:
+            print(f"⚠️ Piped инстанс {instance} не ответил: {e}")
+            continue
+    
+    if not audio_url:
+        raise Exception("Не удалось получить ссылку на аудио через Piped API")
+    
+    # Скачиваем файл напрямую
+    filename = os.path.join(output_path, f"{video_id}.m4a")
+    
+    async with aiohttp.ClientSession() as session:
+        async with session.get(audio_url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
+            if resp.status != 200:
+                raise Exception(f"Ошибка скачивания: HTTP {resp.status}")
             
-            if filename != mp3_filename and os.path.exists(filename):
-                os.rename(filename, mp3_filename)
-            
-            print(f"✅ Скачано: {mp3_filename}")
-            return mp3_filename
-    except Exception as e:
-        print(f"❌ Ошибка скачивания: {e}")
-        raise
+            with open(filename, 'wb') as f:
+                async for chunk in resp.content.iter_chunked(8192):
+                    f.write(chunk)
+    
+    print(f"✅ Скачано: {filename}")
+    return filename
 
 # === ОБРАБОТЧИКИ КОМАНД ===
 @dp.message(Command("start"))
@@ -299,7 +316,7 @@ async def handle_message(message: types.Message):
     await status_msg.edit_text(get_text(user_id, 'downloading'))
     
     try:
-        filename = download_mp3(yt_url)
+        filename = await download_mp3(yt_url)
         last_track[user_id] = {"name": spotify_name or query}
         
         file_size = os.path.getsize(filename)
