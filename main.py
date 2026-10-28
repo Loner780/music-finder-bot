@@ -18,8 +18,7 @@ from spotipy.oauth2 import SpotifyClientCredentials
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo, KeyboardButton, ReplyKeyboardMarkup
-from pytubefix import YouTube
-from pytubefix.cli import on_progress
+import yt_dlp
 
 # === 1. ЗАГРУЗКА ПЕРЕМЕННЫХ ОКРУЖЕНИЯ ===
 load_dotenv()
@@ -198,31 +197,42 @@ async def search_youtube_api(query):
     return None
 
 def download_mp3(youtube_url, output_path=DOWNLOAD_DIR):
-    """Скачивает MP3 через pytubefix (не блокируется YouTube)"""
-    
+    """Скачивает MP3 через yt-dlp с обходом блокировок"""
     os.makedirs(output_path, exist_ok=True)
     
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192',
+        }],
+        'outtmpl': f'{output_path}%(title)s.%(ext)s',
+        'quiet': True,
+        'no_warnings': True,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['web', 'android', 'ios', 'web_creator', 'tv'],
+                'player_skip': ['webpage'],
+            }
+        },
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept-Language': 'en-US,en;q=0.9',
+        },
+    }
+    
     try:
-        yt = YouTube(youtube_url, on_progress_callback=on_progress)
-        print(f" Скачиваю: {yt.title}")
-        
-        # Получаем аудио поток
-        audio_stream = yt.streams.get_audio_only()
-        
-        if not audio_stream:
-            raise Exception("Аудио поток не найден")
-        
-        # Скачиваем
-        filename = audio_stream.download(output_path=output_path)
-        
-        # Переименовываем в .mp3 (фактически это m4a, но Telegram примет)
-        mp3_filename = filename.rsplit('.', 1)[0] + '.mp3'
-        if filename != mp3_filename:
-            os.rename(filename, mp3_filename)
-        
-        print(f"✅ Скачано: {mp3_filename}")
-        return mp3_filename
-        
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(youtube_url, download=True)
+            filename = ydl.prepare_filename(info)
+            mp3_filename = filename.rsplit('.', 1)[0] + '.mp3'
+            
+            if filename != mp3_filename and os.path.exists(filename):
+                os.rename(filename, mp3_filename)
+            
+            print(f"✅ Скачано: {mp3_filename}")
+            return mp3_filename
     except Exception as e:
         print(f"❌ Ошибка скачивания: {e}")
         raise
