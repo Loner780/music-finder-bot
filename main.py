@@ -198,17 +198,36 @@ async def search_youtube_api(query):
     return None
 
 def download_mp3(youtube_url, output_path=DOWNLOAD_DIR):
+    """Скачивает MP3 через pytubefix (не блокируется YouTube)"""
+    from pytubefix import YouTube
+    from pytubefix.cli import on_progress
+    
     os.makedirs(output_path, exist_ok=True)
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '128'}],
-        'outtmpl': f'{output_path}%(title)s.%(ext)s',
-        'quiet': True,
-        'noplaylist': True,
-    }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(youtube_url, download=True)
-        return ydl.prepare_filename(info).replace('.webm', '.mp3').replace('.m4a', '.mp3').replace('.mp4', '.mp3')
+    
+    try:
+        yt = YouTube(youtube_url, on_progress_callback=on_progress)
+        print(f" Скачиваю: {yt.title}")
+        
+        # Получаем аудио поток
+        audio_stream = yt.streams.get_audio_only()
+        
+        if not audio_stream:
+            raise Exception("Аудио поток не найден")
+        
+        # Скачиваем
+        filename = audio_stream.download(output_path=output_path)
+        
+        # Переименовываем в .mp3 (фактически это m4a, но Telegram примет)
+        mp3_filename = filename.rsplit('.', 1)[0] + '.mp3'
+        if filename != mp3_filename:
+            os.rename(filename, mp3_filename)
+        
+        print(f"✅ Скачано: {mp3_filename}")
+        return mp3_filename
+        
+    except Exception as e:
+        print(f"❌ Ошибка скачивания: {e}")
+        raise
 
 # === ОБРАБОТЧИКИ КОМАНД ===
 @dp.message(Command("start"))
