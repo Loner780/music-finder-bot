@@ -3,6 +3,8 @@ import json
 import asyncio
 from pathlib import Path
 from dotenv import load_dotenv
+from urllib.parse import quote
+import aiohttp
 
 # === FastAPI импорты ===
 from fastapi import FastAPI, Query
@@ -27,6 +29,7 @@ SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ADMIN_ID = os.getenv("ADMIN_ID")
 DOWNLOAD_DIR = "downloads/"
+YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 
 # === 2. ИНИЦИАЛИЗАЦИЯ SPOTIFY ===
 sp = spotipy.Spotify(
@@ -167,20 +170,31 @@ def search_spotify(query):
         print(f"Spotify error: {e}")
     return None
 
-def search_youtube(query):
+async def search_youtube_api(query):
+    """Ищет видео через YouTube Data API v3"""
+    if not YOUTUBE_API_KEY:
+        print("⚠️ YOUTUBE_API_KEY не установлен!")
+        return None
+    
+    url = f"https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=1&q={quote(query)}&key={YOUTUBE_API_KEY}"
+    
     try:
-        ydl_opts = {
-            'quiet': True,
-            'noplaylist': True,
-            'default_search': 'ytsearch',
-        }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(f"ytsearch1:{query}", download=False)
-            if info and 'entries' in info and len(info['entries']) > 0:
-                video = info['entries'][0]
-                return video.get('webpage_url') or f"https://www.youtube.com/watch?v={video['id']}"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    if data.get('items') and len(data['items']) > 0:
+                        video_id = data['items'][0]['id']['videoId']
+                        title = data['items'][0]['snippet']['title']
+                        print(f"✅ YouTube API нашёл: {title}")
+                        return f"https://www.youtube.com/watch?v={video_id}"
+                    else:
+                        print(f"⚠️ YouTube API: items пустой для '{query}'")
+                else:
+                    error_text = await response.text()
+                    print(f"❌ YouTube API error {response.status}: {error_text}")
     except Exception as e:
-        print(f"YouTube error: {e}")
+        print(f"❌ YouTube API exception: {e}")
     return None
 
 def download_mp3(youtube_url, output_path=DOWNLOAD_DIR):
@@ -249,7 +263,7 @@ async def handle_message(message: types.Message):
     status_msg = await message.answer(get_text(user_id, 'searching', query=query))
     
     spotify_name = search_spotify(query)
-    yt_url = search_youtube(spotify_name or query)
+    yt_url = await search_youtube_api(spotify_name or query)
     
     if not yt_url:
         await status_msg.edit_text(get_text(user_id, 'not_found'))
