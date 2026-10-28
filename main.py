@@ -87,6 +87,76 @@ dp = Dispatcher()
 bot = None
 last_track = {}
 
+# === СЛОВАРЬ ПЕРЕВОДОВ ===
+LANGUAGES = {
+    'ru': {
+        'welcome': 'Привет, {name}! Я бот для поиска и скачивания музыки.',
+        'search_prompt': 'Отправьте мне название трека или исполнителя, и я найду MP3 файл.',
+        'open_app': '🎵 Открыть приложение',
+        'choose_lang': 'Выберите язык / Choose language:',
+        'lang_set_ru': '✅ Язык изменён на русский',
+        'lang_set_en': '✅ Language set to English',
+        'searching': '🔍 Ищу: {query}',
+        'downloading': '⬇️ Скачиваю...',
+        'done': '✅ Готово!',
+        'not_found': '❌ Трек не найден.',
+        'error': '⚠️ Ошибка: {e}',
+        'too_big': '❌ Файл слишком большой (>50 МБ).',
+        'add_to_playlist': '➕ В плейлист',
+        'select_playlist': 'Выберите плейлист',
+        'create_playlist_first': 'Сначала создайте плейлист: /new Название',
+        'playlist_created': '✅ Плейлист «{name}» создан!',
+        'playlist_exists': 'Плейлист «{name}» уже существует.',
+        'usage_new': 'Использование: /new Название',
+        'added_to_playlist': 'Добавлено в «{name}»',
+        'no_track': 'Сначала скачайте трек!',
+        'playlist_not_found': 'Плейлист не найден',
+        'already_in_playlist': 'Уже есть в этом плейлисте',
+        'unknown_track': 'Неизвестный трек',
+    },
+    'en': {
+        'welcome': 'Hi, {name}! I am a music search and download bot.',
+        'search_prompt': 'Send me a track or artist name, and I will find an MP3 file.',
+        'open_app': '🎵 Open App',
+        'choose_lang': 'Choose language / Выберите язык:',
+        'lang_set_ru': '✅ Язык изменён на русский',
+        'lang_set_en': '✅ Language set to English',
+        'searching': '🔍 Searching: {query}',
+        'downloading': '⬇️ Downloading...',
+        'done': '✅ Done!',
+        'not_found': '❌ Track not found.',
+        'error': '⚠️ Error: {e}',
+        'too_big': ' File is too big (>50 MB).',
+        'add_to_playlist': '➕ To playlist',
+        'select_playlist': 'Select a playlist',
+        'create_playlist_first': 'First create a playlist: /new Name',
+        'playlist_created': '✅ Playlist «{name}» created!',
+        'playlist_exists': 'Playlist «{name}» already exists.',
+        'usage_new': 'Usage: /new Name',
+        'added_to_playlist': 'Added to «{name}»',
+        'no_track': 'Download a track first!',
+        'playlist_not_found': 'Playlist not found',
+        'already_in_playlist': 'Already in this playlist',
+        'unknown_track': 'Unknown track',
+    }
+}
+
+user_languages = {}
+
+def get_lang(user_id):
+    return user_languages.get(user_id, 'ru')
+
+def get_text(user_id, key, **kwargs):
+    lang = get_lang(user_id)
+    text = LANGUAGES[lang].get(key, key)
+    if kwargs:
+        try:
+            text = text.format(**kwargs)
+        except:
+            pass
+    return text
+
+# === ПОИСК И СКАЧИВАНИЕ ===
 def search_spotify(query):
     try:
         results = sp.search(q=query, limit=1, type='track')
@@ -98,12 +168,11 @@ def search_spotify(query):
     return None
 
 def search_youtube(query):
-    """Ищет видео на YouTube через yt-dlp (без youtube-search-python)"""
     try:
         ydl_opts = {
             'quiet': True,
             'noplaylist': True,
-            'default_search': 'ytsearch',  # <-- МАГИЯ: поиск через yt-dlp
+            'default_search': 'ytsearch',
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(f"ytsearch1:{query}", download=False)
@@ -127,43 +196,79 @@ def download_mp3(youtube_url, output_path=DOWNLOAD_DIR):
         info = ydl.extract_info(youtube_url, download=True)
         return ydl.prepare_filename(info).replace('.webm', '.mp3').replace('.m4a', '.mp3').replace('.mp4', '.mp3')
 
+# === ОБРАБОТЧИКИ КОМАНД ===
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
+    user_id = message.from_user.id
     first_name = message.from_user.first_name or "Пользователь"
-    webapp_url = os.getenv("WEBAPP_URL", "https://music-finder-bot-2xi8.onrender.com")
     
-    kb = ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="🎵 Открыть приложение", web_app=WebAppInfo(url=webapp_url))]],
+    # Клавиатура выбора языка
+    lang_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="RU Русский", callback_data="lang_ru"),
+            InlineKeyboardButton(text="GB English", callback_data="lang_en"),
+        ]
+    ])
+    
+    # Кнопка Mini App
+    webapp_url = os.getenv("WEBAPP_URL", "https://music-finder-bot-2xi8.onrender.com")
+    mini_app_kb = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=get_text(user_id, 'open_app'), web_app=WebAppInfo(url=webapp_url))]],
         resize_keyboard=True
     )
-    await message.answer(f"👋 Привет, {first_name}! Отправь название трека для поиска или открой Mini App.", reply_markup=kb)
+    
+    await message.answer(
+        get_text(user_id, 'welcome', name=first_name) + "\n\n" +
+        get_text(user_id, 'search_prompt') + "\n\n" +
+        get_text(user_id, 'choose_lang'),
+        reply_markup=lang_kb
+    )
+    
+    await message.answer(
+        " " + ("Открой Mini App для просмотра плейлистов:" if get_lang(user_id) == 'ru' else "Open Mini App to view playlists:"),
+        reply_markup=mini_app_kb
+    )
+
+@dp.callback_query(lambda c: c.data.startswith('lang_'))
+async def process_lang_choice(callback: types.CallbackQuery):
+    lang = callback.data.split('_')[1]
+    user_id = callback.from_user.id
+    user_languages[user_id] = lang
+    
+    if lang == 'ru':
+        await callback.message.edit_text(get_text(user_id, 'lang_set_ru'))
+    else:
+        await callback.message.edit_text(get_text(user_id, 'lang_set_en'))
+    
+    await callback.answer()
 
 @dp.message(F.text & ~F.text.startswith('/'))
 async def handle_message(message: types.Message):
+    user_id = message.from_user.id
     query = message.text
-    status_msg = await message.answer(f"🔍 Ищу: {query}")
+    status_msg = await message.answer(get_text(user_id, 'searching', query=query))
     
     spotify_name = search_spotify(query)
     yt_url = search_youtube(spotify_name or query)
     
     if not yt_url:
-        await status_msg.edit_text("❌ Трек не найден.")
+        await status_msg.edit_text(get_text(user_id, 'not_found'))
         return
     
-    await status_msg.edit_text("⬇️ Скачиваю...")
+    await status_msg.edit_text(get_text(user_id, 'downloading'))
     
     try:
         filename = download_mp3(yt_url)
-        last_track[message.from_user.id] = {"name": spotify_name or query}
+        last_track[user_id] = {"name": spotify_name or query}
         
         file_size = os.path.getsize(filename)
         if file_size > 50 * 1024 * 1024:
-            await status_msg.edit_text("❌ Файл слишком большой (>50 МБ).")
+            await status_msg.edit_text(get_text(user_id, 'too_big'))
             os.remove(filename)
             return
 
         pl_kb = InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text="➕ В плейлист", callback_data="pl_menu")
+            InlineKeyboardButton(text=get_text(user_id, 'add_to_playlist'), callback_data="pl_menu")
         ]])
         
         await message.answer_audio(
@@ -171,62 +276,64 @@ async def handle_message(message: types.Message):
             caption=f"🎵 {spotify_name or query}",
             reply_markup=pl_kb
         )
-        await status_msg.edit_text("✅ Готово!")
+        await status_msg.edit_text(get_text(user_id, 'done'))
         os.remove(filename)
     except Exception as e:
-        await status_msg.edit_text(f"️ Ошибка: {e}")
+        await status_msg.edit_text(get_text(user_id, 'error', e=str(e)))
 
 @dp.message(Command("new"))
 async def cmd_new(message: types.Message):
+    user_id = message.from_user.id
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2:
-        await message.answer("Использование: /new Название")
+        await message.answer(get_text(user_id, 'usage_new'))
         return
     name = parts[1].strip()
     data = load_playlists()
-    uid = str(message.from_user.id)
+    uid = str(user_id)
     data.setdefault(uid, {})
     if name in data[uid]:
-        await message.answer(f"Плейлист «{name}» уже существует.")
+        await message.answer(get_text(user_id, 'playlist_exists', name=name))
         return
     data[uid][name] = []
     save_playlists(data)
-    await message.answer(f"✅ Плейлист «{name}» создан!")
+    await message.answer(get_text(user_id, 'playlist_created', name=name))
 
 @dp.callback_query(lambda c: c.data == "pl_menu")
 async def pl_menu(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
     data = load_playlists()
-    pls = data.get(str(callback.from_user.id), {})
+    pls = data.get(str(user_id), {})
     if not pls:
-        await callback.answer("Сначала создайте плейлист: /new Название", show_alert=True)
+        await callback.answer(get_text(user_id, 'create_playlist_first'), show_alert=True)
         return
     rows = [[InlineKeyboardButton(text=f"📁 {name}", callback_data=f"pl_add:{name}")] for name in pls.keys()]
     await callback.message.edit_reply_markup(reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
-    await callback.answer("Выберите плейлист")
+    await callback.answer(get_text(user_id, 'select_playlist'))
 
 @dp.callback_query(lambda c: c.data.startswith("pl_add:"))
 async def pl_add(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
     name = callback.data.split(":", 1)[1]
-    uid = callback.from_user.id
-    track_info = last_track.get(uid)
+    track_info = last_track.get(user_id)
     if not track_info:
-        await callback.answer("Сначала скачайте трек!", show_alert=True)
+        await callback.answer(get_text(user_id, 'no_track'), show_alert=True)
         return
     
     data = load_playlists()
-    udata = data.setdefault(str(uid), {})
+    udata = data.setdefault(str(user_id), {})
     if name not in udata:
-        await callback.answer("Плейлист не найден", show_alert=True)
+        await callback.answer(get_text(user_id, 'playlist_not_found'), show_alert=True)
         return
     
-    track_name = track_info.get("name", "Неизвестный")
+    track_name = track_info.get("name", get_text(user_id, 'unknown_track'))
     if any(t.get("name") == track_name for t in udata[name]):
-        await callback.answer("Уже есть в этом плейлисте", show_alert=True)
+        await callback.answer(get_text(user_id, 'already_in_playlist'), show_alert=True)
         return
     
     udata[name].append({"name": track_name})
     save_playlists(data)
-    await callback.answer(f"Добавлено в «{name}»")
+    await callback.answer(get_text(user_id, 'added_to_playlist', name=name))
 
 # === 5. ЗАПУСК ОБОИХ ПРОЦЕССОВ ===
 async def start_bot():
