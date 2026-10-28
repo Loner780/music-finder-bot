@@ -13,13 +13,13 @@ from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
-# === Telegram Bot импорты ===
-import yt_dlp
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo, KeyboardButton, ReplyKeyboardMarkup
+from pytubefix import YouTube
+from pytubefix.cli import on_progress
 
 # === 1. ЗАГРУЗКА ПЕРЕМЕННЫХ ОКРУЖЕНИЯ ===
 load_dotenv()
@@ -199,8 +199,6 @@ async def search_youtube_api(query):
 
 def download_mp3(youtube_url, output_path=DOWNLOAD_DIR):
     """Скачивает MP3 через pytubefix (не блокируется YouTube)"""
-    from pytubefix import YouTube
-    from pytubefix.cli import on_progress
     
     os.makedirs(output_path, exist_ok=True)
     
