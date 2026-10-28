@@ -195,70 +195,56 @@ async def search_youtube_api(query):
         print(f"❌ YouTube API exception: {e}")
     return None
 
-async def download_mp3(youtube_url, output_path=DOWNLOAD_DIR):
-    """Скачивает MP3 через Cobalt API (стабильный сервис)"""
+def download_mp3(youtube_url, output_path=DOWNLOAD_DIR):
+    """Скачивает MP3 через yt-dlp с обходом блокировок (требует Node.js)"""
     import re
     
     os.makedirs(output_path, exist_ok=True)
     
-    # Извлекаем video_id из URL
+    # Извлекаем video_id для имени файла
     match = re.search(r'(?:v=|/)([0-9A-Za-z_-]{11})', youtube_url)
-    if not match:
-        raise Exception(f"Неверный YouTube URL: {youtube_url}")
+    video_id = match.group(1) if match else "unknown"
     
-    video_id = match.group(1)
-    
-    # Cobalt API
-    cobalt_api = "https://api.cobalt.tools/api/json"
-    
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192',
+        }],
+        'outtmpl': f'{output_path}{video_id}.%(ext)s',
+        'quiet': True,
+        'no_warnings': True,
+        'noplaylist': True,
+        # КЛЮЧЕВОЕ: используем TV клиент (не блокируется) + mediaconnect
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['tv', 'mediaconnect', 'web'],
+            }
+        },
+        # Правильный User-Agent
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+            'Accept-Language': 'en-US,en;q=0.9',
+        },
     }
-    
-    payload = {
-        "url": youtube_url,
-        "vCodec": "h264",
-        "vQuality": "720",
-        "aFormat": "mp3",
-        "isAudioOnly": True,
-    }
-    
-    audio_url = None
     
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(cobalt_api, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    if data.get('status') == 'stream' or data.get('url'):
-                        audio_url = data.get('url')
-                        print(f"✅ Cobalt API нашёл аудио: {audio_url[:50]}...")
-                    else:
-                        print(f"️ Cobalt API вернул: {data}")
-                else:
-                    error_text = await resp.text()
-                    print(f"❌ Cobalt API error {resp.status}: {error_text}")
-    except Exception as e:
-        print(f"❌ Cobalt API exception: {e}")
-    
-    if not audio_url:
-        raise Exception("Не удалось получить ссылку через Cobalt API")
-    
-    # Скачиваем файл
-    filename = os.path.join(output_path, f"{video_id}.mp3")
-    
-    async with aiohttp.ClientSession() as session:
-        async with session.get(audio_url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
-            if resp.status != 200:
-                raise Exception(f"Ошибка скачивания: HTTP {resp.status}")
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(youtube_url, download=True)
+            filename = ydl.prepare_filename(info)
+            mp3_filename = filename.rsplit('.', 1)[0] + '.mp3'
             
-            with open(filename, 'wb') as f:
-                async for chunk in resp.content.iter_chunked(8192):
-                    f.write(chunk)
-    
-    print(f"✅ Скачано: {filename}")
-    return filename
+            if filename != mp3_filename and os.path.exists(filename):
+                os.rename(filename, mp3_filename)
+            elif not os.path.exists(mp3_filename) and os.path.exists(filename):
+                mp3_filename = filename
+            
+            print(f"✅ Скачано: {mp3_filename}")
+            return mp3_filename
+    except Exception as e:
+        print(f"❌ Ошибка скачивания: {type(e).__name__}: {e}")
+        raise
 
 # === ОБРАБОТЧИКИ КОМАНД ===
 @dp.message(Command("start"))
@@ -322,7 +308,7 @@ async def handle_message(message: types.Message):
     await status_msg.edit_text(get_text(user_id, 'downloading'))
     
     try:
-        filename = await download_mp3(yt_url)
+        filename = download_mp3(yt_url)
         last_track[user_id] = {"name": spotify_name or query}
         
         file_size = os.path.getsize(filename)
