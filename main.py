@@ -13,6 +13,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
+import yt_dlp
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
 from aiogram import Bot, Dispatcher, types, F
