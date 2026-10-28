@@ -13,7 +13,6 @@ import uvicorn
 
 # === Telegram Bot импорты ===
 import yt_dlp
-from youtube_search import YoutubeSearch
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
 from aiogram import Bot, Dispatcher, types, F
@@ -99,10 +98,18 @@ def search_spotify(query):
     return None
 
 def search_youtube(query):
+    """Ищет видео на YouTube через yt-dlp (без youtube-search-python)"""
     try:
-        results = YoutubeSearch(query, max_results=1).to_dict()
-        if results:
-            return f"https://www.youtube.com/watch?v={results[0]['id']}"
+        ydl_opts = {
+            'quiet': True,
+            'noplaylist': True,
+            'default_search': 'ytsearch',  # <-- МАГИЯ: поиск через yt-dlp
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(f"ytsearch1:{query}", download=False)
+            if info and 'entries' in info and len(info['entries']) > 0:
+                video = info['entries'][0]
+                return video.get('webpage_url') or f"https://www.youtube.com/watch?v={video['id']}"
     except Exception as e:
         print(f"YouTube error: {e}")
     return None
@@ -126,10 +133,10 @@ async def cmd_start(message: types.Message):
     webapp_url = os.getenv("WEBAPP_URL", "https://music-finder-bot-2xi8.onrender.com")
     
     kb = ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=" Открыть приложение", web_app=WebAppInfo(url=webapp_url))]],
+        keyboard=[[KeyboardButton(text="🎵 Открыть приложение", web_app=WebAppInfo(url=webapp_url))]],
         resize_keyboard=True
     )
-    await message.answer(f" Привет, {first_name}! Отправь название трека для поиска или открой Mini App.", reply_markup=kb)
+    await message.answer(f"👋 Привет, {first_name}! Отправь название трека для поиска или открой Mini App.", reply_markup=kb)
 
 @dp.message(F.text & ~F.text.startswith('/'))
 async def handle_message(message: types.Message):
@@ -167,7 +174,7 @@ async def handle_message(message: types.Message):
         await status_msg.edit_text("✅ Готово!")
         os.remove(filename)
     except Exception as e:
-        await status_msg.edit_text(f"⚠️ Ошибка: {e}")
+        await status_msg.edit_text(f"️ Ошибка: {e}")
 
 @dp.message(Command("new"))
 async def cmd_new(message: types.Message):
