@@ -27,6 +27,7 @@ load_dotenv()
 SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
 SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+print(f"🔑 ПРОВЕРКА ТОКЕНА В RENDER: {TELEGRAM_BOT_TOKEN[:10]}...{TELEGRAM_BOT_TOKEN[-5:] if TELEGRAM_BOT_TOKEN else 'ПУСТО'}")
 ADMIN_ID = os.getenv("ADMIN_ID")
 DOWNLOAD_DIR = "downloads/"
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
