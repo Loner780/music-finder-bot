@@ -319,8 +319,15 @@ async def handle_message(message: types.Message):
     query = message.text
     status_msg = await message.answer(get_text(user_id, 'searching', query=query))
     
+    # Сначала ищем в Spotify
     spotify_name = search_spotify(query)
-    yt_url = await search_youtube_api(spotify_name or query)
+    print(f"🔍 Spotify нашёл: {spotify_name}")
+    
+    # Если Spotify нашёл — ищем по точному названию, иначе по запросу пользователя
+    search_query = spotify_name or query
+    print(f"🔍 Ищем на YouTube: {search_query}")
+    
+    yt_url = await search_youtube_api(search_query)
     
     if not yt_url:
         await status_msg.edit_text(get_text(user_id, 'not_found'))
@@ -329,7 +336,6 @@ async def handle_message(message: types.Message):
     await status_msg.edit_text(get_text(user_id, 'downloading'))
     
     try:
-        # ВОТ ЗДЕСЬ правильный вызов с await, и больше нигде!
         filename = await download_mp3(yt_url)
         last_track[user_id] = {"name": spotify_name or query}
         
@@ -352,24 +358,6 @@ async def handle_message(message: types.Message):
         os.remove(filename)
     except Exception as e:
         await status_msg.edit_text(get_text(user_id, 'error', e=str(e)))
-
-@dp.message(Command("new"))
-async def cmd_new(message: types.Message):
-    user_id = message.from_user.id
-    parts = message.text.split(maxsplit=1)
-    if len(parts) < 2:
-        await message.answer(get_text(user_id, 'usage_new'))
-        return
-    name = parts[1].strip()
-    data = load_playlists()
-    uid = str(user_id)
-    data.setdefault(uid, {})
-    if name in data[uid]:
-        await message.answer(get_text(user_id, 'playlist_exists', name=name))
-        return
-    data[uid][name] = []
-    save_playlists(data)
-    await message.answer(get_text(user_id, 'playlist_created', name=name))
 
 @dp.callback_query(lambda c: c.data == "pl_menu")
 async def pl_menu(callback: types.CallbackQuery):
