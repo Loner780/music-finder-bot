@@ -403,27 +403,18 @@ async def pl_add(callback: types.CallbackQuery):
 
 # === 5. ЗАПУСК ОБОИХ ПРОЦЕССОВ ===
 async def start_bot():
+    """Только webhook, без polling"""
     global bot
     bot = Bot(token=TELEGRAM_BOT_TOKEN)
+    print("✅ Бот запущен в webhook режиме!")
     
-    # Устанавливаем webhook
-    webhook_url = os.getenv("WEBAPP_URL", "https://music-finder-bot-2xi8.onrender.com")
-    await bot.set_webhook(url=f"{webhook_url}/webhook")
-    print(f"✅ Webhook установлен: {webhook_url}/webhook")
-    
-    # Запускаем бота через webhook
-    await dp.start_polling(bot, skip_updates=True)
-
 async def main():
     port = int(os.getenv("PORT", 8000))
     config = uvicorn.Config(app, host="0.0.0.0", port=port)
     server = uvicorn.Server(config)
     
-    print(f"🚀 Запуск сервера на порту {port} и бота...")
-    await asyncio.gather(
-        server.serve(),
-        start_bot()
-    )
+    print(f"🚀 Запуск сервера на порту {port}...")
+    await server.serve()
 
 if __name__ == "__main__":
     asyncio.run(main())
