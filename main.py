@@ -83,14 +83,6 @@ async def health_check():
 async def get_playlists(user_id: str = Query(...)):
     return load_playlists().get(user_id, {})
 
-@app.post("/webhook")
-async def webhook(request: Request):
-    """Обработчик webhook от Telegram"""
-    data = await request.json()
-    update = types.Update(**data)
-    await dp.feed_update(bot, update)
-    return {"ok": True}
-
 # === 4. TELEGRAM БОТ ===
 dp = Dispatcher()
 bot = None
@@ -403,18 +395,21 @@ async def pl_add(callback: types.CallbackQuery):
 
 # === 5. ЗАПУСК ОБОИХ ПРОЦЕССОВ ===
 async def start_bot():
-    """Только webhook, без polling"""
     global bot
     bot = Bot(token=TELEGRAM_BOT_TOKEN)
-    print("✅ Бот запущен в webhook режиме!")
+    print("✅ Telegram бот запущен!")
+    await dp.start_polling(bot, skip_updates=True)
     
 async def main():
     port = int(os.getenv("PORT", 8000))
     config = uvicorn.Config(app, host="0.0.0.0", port=port)
     server = uvicorn.Server(config)
     
-    print(f"🚀 Запуск сервера на порту {port}...")
-    await server.serve()
+    print(f"🚀 Запуск сервера на порту {port} и бота...")
+    await asyncio.gather(
+        server.serve(),
+        start_bot()
+    )
 
 if __name__ == "__main__":
     asyncio.run(main())
