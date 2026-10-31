@@ -218,7 +218,7 @@ async def download_mp3(youtube_url, output_path=DOWNLOAD_DIR):
         raise Exception("RAPIDAPI_KEY не установлен в Environment!")
     
     # Запрос к RapidAPI
-    url = f"https://{rapidapi_host}/"
+    url = f"https://{rapidapi_host}/dl"
     headers = {
         "X-RapidAPI-Key": rapidapi_key,
         "X-RapidAPI-Host": rapidapi_host,
