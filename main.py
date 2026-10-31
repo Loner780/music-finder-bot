@@ -195,74 +195,53 @@ async def search_youtube_api(query):
         print(f"❌ YouTube API exception: {e}")
     return None
 
-async def download_mp3(youtube_url, output_path=DOWNLOAD_DIR):
-    """Скачивает MP3 через RapidAPI (YouTube MP3)"""
-    
+def download_mp3(youtube_url, output_path=DOWNLOAD_DIR):
+    """Скачивает MP3 через yt-dlp с TV клиентом (не блокируется)"""
+    import re
     
     os.makedirs(output_path, exist_ok=True)
     
-    # Извлекаем video_id из URL
     match = re.search(r'(?:v=|/)([0-9A-Za-z_-]{11})', youtube_url)
-    if not match:
-        raise Exception(f"Неверный YouTube URL: {youtube_url}")
+    video_id = match.group(1) if match else "unknown"
     
-    video_id = match.group(1)
-    
-    # RapidAPI параметры
-    rapidapi_key = os.getenv("RAPIDAPI_KEY")
-    rapidapi_host = os.getenv("RAPIDAPI_HOST", "youtube-mp36.p.rapidapi.com")
-    
-    if not rapidapi_key:
-        raise Exception("RAPIDAPI_KEY не установлен в Environment!")
-    
-    # Запрос к RapidAPI
-    url = f"https://{rapidapi_host}/dl"
-    headers = {
-        "X-RapidAPI-Key": rapidapi_key,
-        "X-RapidAPI-Host": rapidapi_host,
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192',
+        }],
+        'outtmpl': f'{output_path}{video_id}.%(ext)s',
+        'quiet': True,
+        'no_warnings': True,
+        'noplaylist': True,
+        # КЛЮЧЕВОЕ: TV клиент не блокирует облачные IP
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['tv', 'mediaconnect'],
+            }
+        },
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept-Language': 'en-US,en;q=0.9',
+        },
     }
-    params = {
-        "id": video_id,
-    }
-    
-    print(f"🎵 Запрашиваю MP3 через RapidAPI для video_id: {video_id}")
     
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers, params=params, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-                if resp.status != 200:
-                    error_text = await resp.text()
-                    raise Exception(f"RapidAPI error {resp.status}: {error_text}")
-                
-                data = await resp.json()
-                
-                # Проверяем статус
-                if data.get('status') != 'ok':
-                    raise Exception(f"RapidAPI вернул статус: {data.get('status', 'unknown')}")
-                
-                # Получаем ссылку на MP3
-                mp3_url = data.get('link')
-                if not mp3_url:
-                    raise Exception("RapidAPI не вернул ссылку на MP3")
-                
-                print(f"✅ RapidAPI вернул ссылку: {mp3_url[:50]}...")
-                
-                # Скачиваем MP3 файл
-                filename = os.path.join(output_path, f"{video_id}.mp3")
-                
-                async with session.get(mp3_url, timeout=aiohttp.ClientTimeout(total=60)) as mp3_resp:
-                    if mp3_resp.status != 200:
-                        raise Exception(f"Ошибка скачивания MP3: HTTP {mp3_resp.status}")
-                    
-                    with open(filename, 'wb') as f:
-                        async for chunk in mp3_resp.content.iter_chunked(8192):
-                            f.write(chunk)
-                
-                print(f"✅ Скачано: {filename}")
-                return filename
-                
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(youtube_url, download=True)
+            filename = ydl.prepare_filename(info)
+            mp3_filename = filename.rsplit('.', 1)[0] + '.mp3'
+            
+            if filename != mp3_filename and os.path.exists(filename):
+                os.rename(filename, mp3_filename)
+            elif not os.path.exists(mp3_filename):
+                mp3_filename = filename
+            
+            print(f"✅ Скачано: {mp3_filename}")
+            return mp3_filename
     except Exception as e:
-        print(f"❌ Ошибка RapidAPI: {e}")
+        print(f"❌ Ошибка скачивания: {e}")
         raise
 
 # === ОБРАБОТЧИКИ КОМАНД ===
@@ -312,16 +291,14 @@ async def process_lang_choice(callback: types.CallbackQuery):
     await callback.answer()
 
 @dp.message(F.text & ~F.text.startswith('/'))
-async def handle_message(message: types.Message):
+async def handle_message(message: types.Message):  # ← сразу после декоратора идёт def
     user_id = message.from_user.id
     query = message.text
     status_msg = await message.answer(get_text(user_id, 'searching', query=query))
     
-    # Сначала ищем в Spotify
     spotify_name = search_spotify(query)
     print(f"🔍 Spotify нашёл: {spotify_name}")
     
-    # Если Spotify нашёл — ищем по точному названию, иначе по запросу пользователя
     search_query = spotify_name or query
     print(f"🔍 Ищем на YouTube: {search_query}")
     
@@ -334,7 +311,7 @@ async def handle_message(message: types.Message):
     await status_msg.edit_text(get_text(user_id, 'downloading'))
     
     try:
-        filename = await download_mp3(yt_url)
+        filename = download_mp3(yt_url)  # ✅ БЕЗ await
         last_track[user_id] = {"name": spotify_name or query}
         
         file_size = os.path.getsize(filename)
