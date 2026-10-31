@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+from fastapi import Request
 
 import re
 import yt_dlp
@@ -82,9 +83,13 @@ async def health_check():
 async def get_playlists(user_id: str = Query(...)):
     return load_playlists().get(user_id, {})
 
-@app.get("/api/playlist")
-async def get_playlist(user_id: str = Query(...), name: str = Query(...)):
-    return load_playlists().get(user_id, {}).get(name, [])
+@app.post("/webhook")
+async def webhook(request: Request):
+    """Обработчик webhook от Telegram"""
+    data = await request.json()
+    update = types.Update(**data)
+    await dp.feed_update(bot, update)
+    return {"ok": True}
 
 # === 4. TELEGRAM БОТ ===
 dp = Dispatcher()
@@ -400,8 +405,14 @@ async def pl_add(callback: types.CallbackQuery):
 async def start_bot():
     global bot
     bot = Bot(token=TELEGRAM_BOT_TOKEN)
-    print("✅ Telegram бот запущен!")
-    await dp.start_polling(bot)
+    
+    # Устанавливаем webhook
+    webhook_url = os.getenv("WEBAPP_URL", "https://music-finder-bot-2xi8.onrender.com")
+    await bot.set_webhook(url=f"{webhook_url}/webhook")
+    print(f"✅ Webhook установлен: {webhook_url}/webhook")
+    
+    # Запускаем бота через webhook
+    await dp.start_polling(bot, skip_updates=True)
 
 async def main():
     port = int(os.getenv("PORT", 8000))
