@@ -243,54 +243,65 @@ async def download_mp3(youtube_url, output_path=DOWNLOAD_DIR):
             print(f"🔄 UID: {uid}")
         
         # ШАГ 2: GET /api/v2/request/status?uid=XXX — проверяем статус
-        status_url = f"https://{rapidapi_host}/api/v2/request/status"
-        params = {"uid": uid}
-        
-        # Ждём до 120 секунд (20 попыток по 6 секунд)
-        for attempt in range(20):
-            await asyncio.sleep(6)
+status_url = f"https://{rapidapi_host}/api/v2/request/status"
+params = {"uid": uid}
+
+print("⏳ Начинаю ожидание обработки файла...")
+
+# Ждём до 180 секунд (30 попыток по 6 секунд)
+for attempt in range(30):
+    await asyncio.sleep(6)
+    
+    try:
+        async with session.get(status_url, headers=headers, params=params, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+            if resp.status != 200:
+                print(f"⚠️ Попытка {attempt + 1}: HTTP {resp.status}")
+                continue
             
-            async with session.get(status_url, headers=headers, params=params, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-                if resp.status != 200:
-                    print(f"⚠️ Статус запроса: {resp.status}")
-                    continue
+            status_data = await resp.json()
+            state = status_data.get('state', '')
+            progress = status_data.get('progress')
+            
+            if attempt % 3 == 0:  # Показывай прогресс каждые 18 секунд
+                print(f" Попытка {attempt + 1}/30: state={state}, progress={progress}")
+            
+            # Готово!
+            if state == "COMPLETED":
+                download_url = status_data.get('downloadUrl')
                 
-                status_data = await resp.json()
-                state = status_data.get('state', '')
-                print(f"📊 Попытка {attempt + 1}: state={state}")
+                if not download_url:
+                    print(f"️ COMPLETED, но downloadUrl пустой. Полный ответ: {status_data}")
+                    raise Exception(f"COMPLETED, но downloadUrl пустой")
                 
-                # Готово!
-                if state == "COMPLETED":
-                    download_url = status_data.get('downloadUrl')
-                    
-                    if not download_url:
-                        raise Exception(f"COMPLETED, но downloadUrl пустой: {status_data}")
-                    
-                    print(f"✅ Ссылка получена: {download_url[:60]}...")
-                    
-                    # Скачиваем MP3
-                    filename = os.path.join(output_path, f"{video_id}.mp3")
-                    
-                    async with session.get(download_url, timeout=aiohttp.ClientTimeout(total=120)) as mp3_resp:
-                        if mp3_resp.status != 200:
-                            raise Exception(f"Ошибка скачивания: HTTP {mp3_resp.status}")
-                        
-                        with open(filename, 'wb') as f:
-                            async for chunk in mp3_resp.content.iter_chunked(8192):
-                                f.write(chunk)
-                    
-                    file_size = os.path.getsize(filename)
-                    print(f"✅ Скачано: {filename} ({file_size // 1024} KB)")
-                    return filename
+                print(f"✅ Файл готов! Ссылка: {download_url[:60]}...")
                 
-                # Ошибка
-                elif state in ["FAILED", "ERROR"]:
-                    error_msg = status_data.get('error') or status_data.get('message', 'Неизвестная ошибка')
-                    raise Exception(f"Запрос не удался: {error_msg}")
+                # Скачиваем MP3
+                filename = os.path.join(output_path, f"{video_id}.mp3")
                 
-                # Иначе IN_QUEUE или PROCESSING — продолжаем ждать
-        
-        raise Exception("Превышено время ожидания (120 секунд)")
+                async with session.get(download_url, timeout=aiohttp.ClientTimeout(total=120)) as mp3_resp:
+                    if mp3_resp.status != 200:
+                        raise Exception(f"Ошибка скачивания: HTTP {mp3_resp.status}")
+                    
+                    with open(filename, 'wb') as f:
+                        async for chunk in mp3_resp.content.iter_chunked(8192):
+                            f.write(chunk)
+                
+                file_size = os.path.getsize(filename)
+                print(f"✅ Скачано: {filename} ({file_size // 1024} KB)")
+                return filename
+            
+            # Ошибка
+            elif state in ["FAILED", "ERROR"]:
+                error_msg = status_data.get('error') or status_data.get('message', 'Неизвестная ошибка')
+                raise Exception(f"API вернул ошибку: {error_msg}")
+            
+            # Иначе IN_QUEUE или PROCESSING — продолжаем ждать
+    
+    except Exception as e:
+        print(f"⚠️ Ошибка при проверке статуса: {e}")
+        continue
+
+raise Exception("Превышено время ожидания (180 секунд). API не обработал запрос.")
 
 # === ОБРАБОТЧИКИ КОМАНД ===
 @dp.message(Command("start"))
