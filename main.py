@@ -359,7 +359,7 @@ async def handle_message(message: types.Message):  # ← сразу после �
     await status_msg.edit_text(get_text(user_id, 'downloading'))
     
     try:
-        filename = download_mp3(yt_url)  # ✅ БЕЗ await
+        filename = await download_mp3(yt_url)  # ✅ С await возвращает путь к файлу
         last_track[user_id] = {"name": spotify_name or query}
         
         file_size = os.path.getsize(filename)
