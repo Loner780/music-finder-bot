@@ -196,8 +196,9 @@ async def search_youtube_api(query):
     return None
 
 async def download_mp3(youtube_url, output_path=DOWNLOAD_DIR):
-    """Скачивает MP3 через Opachi YouTube MP4/MP3 Downloader API v2"""
+    """Скачивает MP3 через yt-dlp (работает на VPS в Германии)"""
     import re
+    import subprocess
     
     os.makedirs(output_path, exist_ok=True)
     
@@ -207,96 +208,41 @@ async def download_mp3(youtube_url, output_path=DOWNLOAD_DIR):
         raise Exception(f"Неверный YouTube URL: {youtube_url}")
     
     video_id = match.group(1)
+    filename = os.path.join(output_path, f"{video_id}.mp3")
     
-    # RapidAPI параметры
-    rapidapi_key = os.getenv("RAPIDAPI_KEY")
-    rapidapi_host = os.getenv("RAPIDAPI_HOST", "youtube-mp4-mp3-downloader.p.rapidapi.com")
+    print(f"🎵 Скачиваю через yt-dlp: {video_id}")
     
-    if not rapidapi_key:
-        raise Exception("RAPIDAPI_KEY не установлен!")
+    # Команда yt-dlp с TV-клиентом для обхода блокировок
+    cmd = [
+        "yt-dlp",
+        "--extract-audio",
+        "--audio-format", "mp3",
+        "--audio-quality", "0",
+        "--client", "tv",
+        "--no-playlist",
+        "-o", filename,
+        youtube_url
+    ]
     
-    headers = {
-        "X-RapidAPI-Key": rapidapi_key,
-        "X-RapidAPI-Host": rapidapi_host,
-        "Content-Type": "application/json",
-    }
-    
-    print(f"🎵 Создаю запрос для video_id: {video_id}")
-    
-    async with aiohttp.ClientSession() as session:
-        # ШАГ 1: POST /api/v2/request — создаём запрос
-        create_url = f"https://{rapidapi_host}/api/v2/request"
-        payload = {"id": video_id}
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
         
-        async with session.post(create_url, headers=headers, json=payload, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-            if resp.status != 200:
-                error_text = await resp.text()
-                raise Exception(f"Ошибка создания запроса: {resp.status} - {error_text}")
-            
-            data = await resp.json()
-            print(f"✅ POST ответ: state={data.get('state')}, uid={data.get('uid', 'N/A')}")
-            
-            uid = data.get('uid')
-            if not uid:
-                raise Exception(f"Не удалось получить uid: {data}")
-            
-            print(f"🔄 UID: {uid}")
+        if result.returncode != 0:
+            print(f"❌ yt-dlp ошибка: {result.stderr}")
+            raise Exception(f"yt-dlp ошибка: {result.stderr[:200]}")
         
-        # ШАГ 2: GET /api/v2/request/status?uid=XXX — проверяем статус
-        status_url = f"https://{rapidapi_host}/api/v2/request/status"
-        params = {"uid": uid}
+        if not os.path.exists(filename):
+            raise Exception("Файл не был создан после скачивания")
         
-        print("⏳ Начинаю ожидание обработки файла...")
+        file_size = os.path.getsize(filename)
+        print(f"✅ Скачано: {filename} ({file_size // 1024} KB)")
+        return filename
         
-        # Ждём до 180 секунд (30 попыток по 6 секунд)
-        for attempt in range(30):
-            await asyncio.sleep(6)
-            
-            try:
-                async with session.get(status_url, headers=headers, params=params, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-                    if resp.status != 200:
-                        print(f"⚠️ Попытка {attempt + 1}: HTTP {resp.status}")
-                        continue
-                    
-                    status_data = await resp.json()
-                    state = status_data.get('state', '')
-                    progress = status_data.get('progress')
-                    
-                    if attempt % 3 == 0:
-                        print(f"📊 Попытка {attempt + 1}/30: state={state}, progress={progress}")
-                    
-                    if state == "COMPLETED":
-                        download_url = status_data.get('downloadUrl')
-                        
-                        if not download_url:
-                            print(f"⚠️ COMPLETED, но downloadUrl пустой. Ответ: {status_data}")
-                            raise Exception("COMPLETED, но downloadUrl пустой")
-                        
-                        print(f"✅ Файл готов! Ссылка: {download_url[:60]}...")
-                        
-                        filename = os.path.join(output_path, f"{video_id}.mp3")
-                        
-                        async with session.get(download_url, timeout=aiohttp.ClientTimeout(total=120)) as mp3_resp:
-                            if mp3_resp.status != 200:
-                                raise Exception(f"Ошибка скачивания: HTTP {mp3_resp.status}")
-                            
-                            with open(filename, 'wb') as f:
-                                async for chunk in mp3_resp.content.iter_chunked(8192):
-                                    f.write(chunk)
-                        
-                        file_size = os.path.getsize(filename)
-                        print(f"✅ Скачано: {filename} ({file_size // 1024} KB)")
-                        return filename
-                    
-                    elif state in ["FAILED", "ERROR"]:
-                        error_msg = status_data.get('error') or status_data.get('message', 'Неизвестная ошибка')
-                        raise Exception(f"API вернул ошибку: {error_msg}")
-            
-            except Exception as e:
-                print(f"⚠️ Ошибка при проверке статуса: {e}")
-                continue
-        
-        raise Exception("Превышено время ожидания (180 секунд)")
+    except subprocess.TimeoutExpired:
+        raise Exception("Превышено время ожидания (120 секунд)")
+    except Exception as e:
+        print(f"❌ Ошибка: {e}")
+        raise
 
 # === ОБРАБОТЧИКИ КОМАНД ===
 @dp.message(Command("start"))
